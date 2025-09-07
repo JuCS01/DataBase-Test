@@ -101,7 +101,7 @@
 
     <!-- Main content -->
     <section class="lg:col-span-3 space-y-6">
-      <!-- MAP CARD (header separado) -->
+      <!-- MAP CARD -->
       <div id="mapHeader" class="bg-white border rounded-2xl p-4 shadow-sm flex flex-wrap gap-4 items-center justify-between">
         <div>
           <h2 class="text-lg font-semibold">Map</h2>
@@ -118,24 +118,23 @@
         </div>
       </div>
 
-      <!-- Contenido del mapa -->
       <div id="mapCard" class="bg-white border rounded-2xl overflow-hidden shadow-sm">
         <div id="map" class="h-[520px]"></div>
       </div>
 
-      <!-- TABLE CARD (header separado) -->
+      <!-- TABLE CARD -->
       <div id="tableHeader" class="bg-white border rounded-2xl p-4 shadow-sm flex flex-wrap gap-4 items-center justify-between">
         <div>
           <h2 class="text-lg font-semibold">Data table</h2>
           <p class="text-sm text-gray-600">Sortable table with filters applied</p>
         </div>
         <div class="flex items-center gap-3 text-sm">
-          <button id="collapseTable" class="px-3 py-1 rounded-lg border hover:bg-gray-50">Hide</button>
+          <button id="collapseTable" class="px-3 py-1 rounded-lg border hover:bg-gray-50">Show</button>
         </div>
       </div>
 
-      <!-- Contenido de la tabla -->
-      <div id="tableCard" class="bg-white border rounded-2xl p-4 shadow-sm">
+      <!-- Arranca OCULTA -->
+      <div id="tableCard" class="hidden bg-white border rounded-2xl p-4 shadow-sm">
         <div class="overflow-x-auto">
           <table id="dataTable" class="min-w-full text-sm">
             <thead>
@@ -156,6 +155,15 @@
           </table>
         </div>
       </div>
+
+      <!-- IMAGE CARD -->
+      <div id="imagesHeader" class="bg-white border rounded-2xl p-4 shadow-sm">
+        <h2 class="text-lg font-semibold mb-2">Figures</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <img src="images/finalplot1.tiff" alt="Final Plot 1" class="rounded-lg shadow-md border">
+          <img src="images/Rplot2.tiff" alt="R Plot 2" class="rounded-lg shadow-md border">
+        </div>
+      </div>
     </section>
   </main>
 
@@ -164,7 +172,6 @@
   </footer>
 
   <script>
-    /* === Replace here if you change sheet === */
     const sheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ0oe0Oz6VhNMYDcsLeJefA6y7ArU_cT8pafvGKJD4T_OlG59CWel1Mh1AdvHuEBjnWWF6nKB440MIu/pub?gid=43236599&single=true&output=csv";
 
     let records = [];
@@ -176,7 +183,6 @@
       initMap();
       loadFromSheet();
 
-      // filtros
       document.getElementById('btnApply').addEventListener('click', applyFilters);
       document.getElementById('toggleHeat').addEventListener('change', renderMap);
       document.querySelectorAll('#dataTable th.sortable').forEach(th => {
@@ -188,7 +194,7 @@
         });
       });
 
-      // plegar / desplegar MAPA
+      // MAP collapse
       const collapseMapBtn = document.getElementById('collapseMap');
       const mapCard = document.getElementById('mapCard');
       collapseMapBtn.addEventListener('click', () => {
@@ -199,12 +205,14 @@
         }
       });
 
-      // plegar / desplegar TABLA
+      // TABLE collapse (arranca hidden)
       const collapseTableBtn = document.getElementById('collapseTable');
       const tableCard = document.getElementById('tableCard');
+      collapseTableBtn.textContent = "Show";
       collapseTableBtn.addEventListener('click', () => {
         tableCard.classList.toggle('hidden');
-        collapseTableBtn.textContent = tableCard.classList.contains('hidden') ? 'Show' : 'Hide';
+        const isVisible = !tableCard.classList.contains('hidden');
+        collapseTableBtn.textContent = isVisible ? 'Hide' : 'Show';
       });
     });
 
@@ -335,55 +343,4 @@
 
       if (document.getElementById('toggleHeat').checked) {
         heatLayer.setLatLngs(pts);
-        if (!map.hasLayer(heatLayer)) map.addLayer(heatLayer);
-        if (map.hasLayer(markerLayer)) map.removeLayer(markerLayer);
-      } else {
-        if (!map.hasLayer(markerLayer)) map.addLayer(markerLayer);
-        if (map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
-      }
-    }
-
-    function renderTable() {
-      const tbody = document.getElementById('tableBody');
-      const data = [...filtered].sort(compareBy(sortState.key, sortState.dir));
-      tbody.innerHTML = data.map(r => {
-        const linkHtml = r.doi ? `<a href="${r.doi}" target="_blank" class="text-indigo-600">Link</a>` : '';
-        return `<tr class="border-b hover:bg-gray-50">
-          <td class="p-2">${r.year ?? ''}</td>
-          <td class="p-2">${r.country ?? 'N/A'}</td>
-          <td class="p-2">${r.site ?? 'N/A'}</td>
-          <td class="p-2">${r.compound ?? 'N/A'}</td>
-          <td class="p-2">${r.matrix ?? 'N/A'}</td>
-          <td class="p-2">${r.study_type ?? 'N/A'}</td>
-          <td class="p-2">${r.concentration_value ?? ''}</td>
-          <td class="p-2">${r.concentration_unit ?? 'N/A'}</td>
-          <td class="p-2">${r.method ?? 'N/A'}</td>
-          <td class="p-2">${linkHtml}</td>
-        </tr>`;
-      }).join('');
-    }
-
-    function updateStats() {
-      document.getElementById('statTotal').textContent = `${records.length} studies`;
-      document.getElementById('statFiltered').textContent = `${filtered.length} visible`;
-    }
-
-    function compareBy(key, dir) {
-      return (a, b) => {
-        const va = a[key], vb = b[key];
-        if (va == null && vb == null) return 0;
-        if (va == null) return 1;
-        if (vb == null) return -1;
-        if (typeof va === 'number' && typeof vb === 'number') {
-          return dir === 'asc' ? va - vb : vb - va;
-        }
-        const sa = String(va).toLowerCase();
-        const sb = String(vb).toLowerCase();
-        if (sa < sb) return dir === 'asc' ? -1 : 1;
-        if (sa > sb) return dir === 'asc' ? 1 : -1;
-        return 0;
-      };
-    }
-  </script>
-</body>
-</html>
+        if (!map.hasLayer(heat
