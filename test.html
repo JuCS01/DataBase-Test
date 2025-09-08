@@ -46,10 +46,17 @@
             <label for="q" class="text-sm font-medium">Search (site, link)</label>
             <input id="q" type="search" class="mt-1 w-full rounded-xl border px-3 py-2" placeholder="Keywords..." />
           </div>
+
           <div>
             <label for="countries" class="text-sm font-medium">Country (multi)</label>
             <select id="countries" multiple size="6" class="mt-1 w-full rounded-xl border px-3 py-2"></select>
           </div>
+
+          <div>
+            <label for="compounds" class="text-sm font-medium">Compound (multi)</label>
+            <select id="compounds" multiple size="6" class="mt-1 w-full rounded-xl border px-3 py-2"></select>
+          </div>
+
           <div>
             <label for="studyType" class="text-sm font-medium">Study type</label>
             <select id="studyType" class="mt-1 w-full rounded-xl border px-3 py-2">
@@ -60,6 +67,7 @@
               <option>Review</option>
             </select>
           </div>
+
           <div>
             <label for="matrix" class="text-sm font-medium">Environmental matrix</label>
             <select id="matrix" class="mt-1 w-full rounded-xl border px-3 py-2">
@@ -71,6 +79,7 @@
               <option>Soil</option>
             </select>
           </div>
+
           <div>
             <label class="text-sm font-medium">Publication year</label>
             <div class="mt-1 flex items-center gap-2">
@@ -79,6 +88,7 @@
               <input id="yearMax" type="number" class="w-24 rounded-xl border px-2 py-2" />
             </div>
           </div>
+
           <div>
             <label class="text-sm font-medium">Concentration</label>
             <div class="mt-1 grid grid-cols-2 gap-2">
@@ -86,10 +96,12 @@
               <input id="concMax" type="number" step="any" class="rounded-xl border px-3 py-2" placeholder="max" />
             </div>
           </div>
+
           <div class="flex items-center gap-2">
             <input id="onlyWithCoords" type="checkbox" class="rounded" />
             <label for="onlyWithCoords" class="text-sm">Only studies with coordinates</label>
           </div>
+
           <div class="pt-2">
             <button id="btnApply" class="w-full px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white">Apply filters</button>
           </div>
@@ -151,13 +163,13 @@
         </div>
       </div>
 
-      <!-- IMAGES CARD -->
+      <!-- IMAGES / TRENDS CARD -->
       <div id="imagesHeader" class="bg-white border rounded-2xl p-4 shadow-sm">
         <h2 class="text-lg font-semibold mb-2">Trends</h2>
         <p class="text-xs text-gray-500 mb-3">Tip: browsers no siempre renderizan TIFF. Si no ves las imágenes, conviene subirlas como PNG/JPG/WebP.</p>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <img src="images/image1.jpg" alt="image1" class="rounded-lg shadow-md border object-contain w-full h-80 bg-gray-50">
-          <img src="images/image2.jpg"   alt="image2"   class="rounded-lg shadow-md border object-contain w-full h-80 bg-gray-50">
+          <img src="images/image1.jpg" alt="Image 1" class="rounded-lg shadow-md border object-contain w-full h-80 bg-gray-50">
+          <img src="images/image2.jpg" alt="Image 2" class="rounded-lg shadow-md border object-contain w-full h-80 bg-gray-50">
         </div>
       </div>
     </section>
@@ -294,10 +306,17 @@
     }
 
     function populateFilters(data) {
+      // Countries
       const countries = Array.from(new Set(data.map(d => d.country).filter(Boolean))).sort();
-      const $countries = document.getElementById('countries');
-      $countries.innerHTML = countries.map(c => `<option value="${c}">${c}</option>`).join('');
+      document.getElementById('countries').innerHTML =
+        countries.map(c => `<option value="${c}">${c}</option>`).join('');
 
+      // Compounds (nuevo)
+      const compounds = Array.from(new Set(data.map(d => d.compound).filter(Boolean))).sort();
+      document.getElementById('compounds').innerHTML =
+        compounds.map(c => `<option value="${c}">${c}</option>`).join('');
+
+      // Years
       const years = data.map(d => d.year).filter(v => typeof v === 'number');
       document.getElementById('yearMin').value = years.length ? Math.min(...years) : 2000;
       document.getElementById('yearMax').value = years.length ? Math.max(...years) : new Date().getFullYear();
@@ -306,6 +325,7 @@
     function applyFilters() {
       const q = (document.getElementById('q').value || '').toLowerCase();
       const countries = Array.from(document.getElementById('countries').selectedOptions).map(o => o.value);
+      const compoundsSel = Array.from(document.getElementById('compounds').selectedOptions).map(o => o.value);
       const studyType = document.getElementById('studyType').value;
       const matrix = document.getElementById('matrix').value;
       const yearMin = parseInt(document.getElementById('yearMin').value || '', 10);
@@ -317,6 +337,7 @@
       filtered = records.filter(r => {
         if (q && !(`${r.site || ""}`.toLowerCase().includes(q))) return false;
         if (countries.length && !countries.includes(r.country)) return false;
+        if (compoundsSel.length && !compoundsSel.includes(r.compound)) return false;
         if (studyType && r.study_type !== studyType) return false;
         if (matrix && r.matrix !== matrix) return false;
         if (typeof r.year === 'number' && (r.year < yearMin || r.year > yearMax)) return false;
@@ -411,6 +432,3 @@
   </script>
 </body>
 </html>
-
-
-
