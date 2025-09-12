@@ -19,9 +19,6 @@
   <!-- PapaParse -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
   <style>
     html, body { height: 100%; }
     #map { height: 520px; }
@@ -75,10 +72,8 @@
             <label for="matrix" class="text-sm font-medium">Environmental matrix</label>
             <select id="matrix" class="mt-1 w-full rounded-xl border px-3 py-2">
               <option value="">(any)</option>
-              <option>Wastewater</option>
-              <option>Freshwater</option>
-              <option>Seawater</option>
-              <option>Drinking water</option>
+              <option>Water</option>
+              <option>Sediment</option>
               <option>Biota</option>
               <option>Air</option>
               <option>Soil</option>
@@ -136,7 +131,7 @@
         <div id="map" class="h-[520px]"></div>
       </div>
 
-      <!-- TABLE CARD -->
+      <!-- TABLE CARD (starts hidden) -->
       <div id="tableHeader" class="bg-white border rounded-2xl p-4 shadow-sm flex flex-wrap gap-4 items-center justify-between">
         <div>
           <h2 class="text-lg font-semibold">Data table</h2>
@@ -168,22 +163,43 @@
         </div>
       </div>
 
-      <!-- TRENDS (GRÁFICAS) -->
-      <div id="imagesHeader" class="bg-white border rounded-2xl p-4 shadow-sm">
-        <h2 class="text-lg font-semibold mb-2">Trends</h2>
-        <p class="text-xs text-gray-500 mb-3">Auto-generated from Google Sheet (updates with filters).</p>
-
-        <!-- una debajo de la otra, con altura fija -->
-        <div class="space-y-4">
-          <div class="bg-white border rounded-xl p-3 shadow-sm">
-            <canvas id="chartCountries" class="w-full" style="height:280px;"></canvas>
+      <!-- EFFECTS CARD -->
+      <div id="effectsHeader" class="bg-white border rounded-2xl p-4 shadow-sm">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-semibold">Predicted effects (QSAR)</h2>
+            <p class="text-sm text-gray-600">
+              Based on VEGA QSAR fields in your sheet (logKow, BCF, LC50, Mutagenicity, etc.).
+            </p>
           </div>
-          <div class="bg-white border rounded-xl p-3 shadow-sm">
-            <div class="overflow-x-auto">
-              <!-- si hay muchos países, aparece scroll horizontal en vez de alargarse -->
-              <canvas id="chartMatrices" class="min-w-[640px] w-full" style="height:320px;"></canvas>
+          <div class="text-xs text-gray-500" id="effectsHint">Select a site to view details.</div>
+        </div>
+
+        <div id="effectsCard" class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <!-- Left: summary -->
+          <div class="p-3 border rounded-xl">
+            <h3 class="font-medium mb-2" id="effTitle">No site selected</h3>
+            <div id="effBadges" class="flex flex-wrap gap-2 text-xs"></div>
+            <div class="mt-3 text-sm text-gray-700" id="effSummary">
+              Choose a marker on the map to see QSAR-based effects.
             </div>
           </div>
+          <!-- Right: table -->
+          <div class="p-3 border rounded-xl overflow-x-auto">
+            <table class="min-w-full text-sm">
+              <tbody id="effTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- IMAGES / TRENDS CARD -->
+      <div id="imagesHeader" class="bg-white border rounded-2xl p-4 shadow-sm">
+        <h2 class="text-lg font-semibold mb-2">Trends</h2>
+        <p class="text-xs text-gray-500 mb-3">Tip: browsers no siempre renderizan TIFF. Si no ves las imágenes, conviene subirlas como PNG/JPG/WebP.</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <img src="images/image1.jpg" alt="Image 1" class="rounded-lg shadow-md border object-contain w-full h-80 bg-gray-50">
+          <img src="images/image2.jpg" alt="Image 2" class="rounded-lg shadow-md border object-contain w-full h-80 bg-gray-50">
         </div>
       </div>
     </section>
@@ -195,27 +211,19 @@
 
   <script>
     /* === CSV de Google Sheets (HOJA 2) === */
-    const sheetUrl =
-      "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ0oe0Oz6VhNMYDcsLeJefA6y7ArU_cT8pafvGKJD4T_OlG59CWel1Mh1AdvHuEBjnWWF6nKB440MIu/pub?gid=43236599&single=true&output=csv";
+    const sheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ0oe0Oz6VhNMYDcsLeJefA6y7ArU_cT8pafvGKJD4T_OlG59CWel1Mh1AdvHuEBjnWWF6nKB440MIu/pub?gid=43236599&single=true&output=csv";
 
     let records = [];
     let filtered = [];
     let map, markerLayer, heatLayer;
     let sortState = { key: 'year', dir: 'desc' };
 
-    // Chart.js handles
-    let countryChart = null;
-    let matricesChart = null;
-
     document.addEventListener('DOMContentLoaded', () => {
       initMap();
       loadFromSheet();
 
       // filtros
-      document.getElementById('btnApply').addEventListener('click', () => {
-        applyFilters();
-        buildCharts(filtered);  // refresca gráficas con datos filtrados
-      });
+      document.getElementById('btnApply').addEventListener('click', applyFilters);
       document.getElementById('toggleHeat').addEventListener('change', renderMap);
       document.querySelectorAll('#dataTable th.sortable').forEach(th => {
         th.addEventListener('click', () => {
@@ -254,19 +262,25 @@
     function normalizeKey(s) {
       return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
     }
+
+    // Número tolerante: coma decimal, ± y guiones Unicode
     function parseNumberFlexible(v) {
       if (v === null || v === undefined) return null;
       let s = String(v).trim();
       if (!s) return null;
-      s = s.replace(/[−–—]/g, '-');
-      if (s.includes('±')) s = s.split('±')[0].trim();
-      if (s.includes(',')) { s = s.replace(/\./g, ''); s = s.replace(/,/g, '.'); }
+      s = s.replace(/[−–—]/g, '-');     // menos unicode -> '-'
+      if (s.includes('±')) s = s.split('±')[0].trim(); // usa la media
+      if (s.includes(',')) {            // coma decimal -> punto
+        s = s.replace(/\./g, '');
+        s = s.replace(/,/g, '.');
+      }
       s = s.replace(/[^0-9eE+\-\.]/g, '');
       const n = Number(s);
       return Number.isFinite(n) ? n : null;
     }
     function safeParseFloat(v) { return parseNumberFlexible(v); }
 
+    // Aliases tolerantes (inglés/español, acentos, etc.)
     const HEADER_ALIASES = {
       'country':'country','pais':'country','país':'country',
       'site':'site','sitio':'site','lugar':'site',
@@ -279,19 +293,22 @@
       'units':'concentration_unit','unidades':'concentration_unit',
       'analytical methods':'method','metodos analiticos':'method','métodos analíticos':'method',
       'publication year':'year','year':'year','año de publicacion':'year','año de publicación':'year',
-      'paper link':'doi','link':'doi','enlace':'doi','doi':'doi',
-      // QSAR
-      'logkow': 'logkow','log kow':'logkow','logp':'logkow',
-      'solubility (mg/l)':'solubility','solubility':'solubility',
-      'bcf (l/kg)':'bcf','bcf':'bcf',
-      'lc50 fish (mg/l)':'lc50_fish','lc50 fish':'lc50_fish',
-      'ec50 daphnia (mg/l)':'ec50_daphnia','ec50 daphnia':'ec50_daphnia',
-      'ec50 algae (mg/l)':'ec50_algae','ec50 algae':'ec50_algae',
-      'mutagenicity':'mutagenicity',
-      'biodegradability (%)':'biodeg_pct','biodegradability':'biodeg_pct',
-      'domain score':'ad_score','applicability domain score':'ad_score',
-      'qsar model':'qsar_model','ad class':'ad_class'
+      'paper link':'doi','link':'doi','enlace':'doi','doi':'doi'
     };
+
+    // Aliases para columnas QSAR
+    Object.assign(HEADER_ALIASES, {
+      'logkow': 'logkow', 'log kow': 'logkow', 'logp': 'logkow',
+      'solubility (mg/l)': 'solubility', 'solubility': 'solubility',
+      'bcf (l/kg)': 'bcf', 'bcf': 'bcf',
+      'lc50 fish (mg/l)': 'lc50_fish', 'lc50 fish': 'lc50_fish',
+      'ec50 daphnia (mg/l)': 'ec50_daphnia', 'ec50 daphnia': 'ec50_daphnia',
+      'ec50 algae (mg/l)': 'ec50_algae', 'ec50 algae': 'ec50_algae',
+      'mutagenicity': 'mutagenicity',
+      'biodegradability (%)': 'biodeg_pct', 'biodegradability': 'biodeg_pct',
+      'domain score': 'ad_score', 'applicability domain score': 'ad_score',
+      'qsar model': 'qsar_model', 'ad class': 'ad_class'
+    });
 
     function mapRow(rawRow) {
       const picked = {};
@@ -299,6 +316,7 @@
         const aliasKey = HEADER_ALIASES[normalizeKey(k)];
         if (aliasKey) picked[aliasKey] = rawRow[k];
       }
+
       const concMean = parseNumberFlexible(picked.concentration_value);
       const concStr = picked.concentration_value != null ? String(picked.concentration_value) : '';
 
@@ -310,8 +328,8 @@
         matrix: safeString(picked.matrix),
         study_type: safeString(picked.study_type),
         compound: safeString(picked.compound),
-        concentration_value: concMean,
-        concentration_text: concStr || null,
+        concentration_value: concMean,         // número (media si venía "±")
+        concentration_text: concStr || null,   // texto original para mostrar si quieres
         concentration_unit: safeString(picked.concentration_unit),
         method: safeString(picked.method),
         year: (() => {
@@ -319,6 +337,7 @@
           return Number.isFinite(n) ? Math.trunc(n) : null;
         })(),
         doi: (picked.doi && String(picked.doi).trim() !== '') ? picked.doi : null,
+
         // QSAR
         logkow: safeParseFloat(picked.logkow),
         solubility: safeParseFloat(picked.solubility),
@@ -349,7 +368,6 @@
         records = rows;
         populateFilters(records);
         applyFilters();
-        buildCharts(filtered); // primer render
       } catch (err) {
         console.error("Sheet load error:", err);
         alert("Error loading Google Sheet: " + err.message);
@@ -357,14 +375,17 @@
     }
 
     function populateFilters(data) {
+      // Countries
       const countries = Array.from(new Set(data.map(d => d.country).filter(Boolean))).sort();
       document.getElementById('countries').innerHTML =
         countries.map(c => `<option value="${c}">${c}</option>`).join('');
 
+      // Compounds
       const compounds = Array.from(new Set(data.map(d => d.compound).filter(Boolean))).sort();
       document.getElementById('compounds').innerHTML =
         compounds.map(c => `<option value="${c}">${c}</option>`).join('');
 
+      // Years
       const years = data.map(d => d.year).filter(v => typeof v === 'number');
       document.getElementById('yearMin').value = years.length ? Math.min(...years) : 2000;
       document.getElementById('yearMax').value = years.length ? Math.max(...years) : new Date().getFullYear();
@@ -452,6 +473,7 @@
         if (map.hasLayer(markerLayer)) map.removeLayer(markerLayer);
       }
 
+      // Mostrar por defecto el primero filtrado si existe
       if (filtered.length) renderEffects(filtered[0]);
     }
 
@@ -497,7 +519,7 @@
       };
     }
 
-    // Badges
+    // --- Interpretadores simples para badges ---
     function classifyBCF(bcf) {
       if (bcf == null) return 'BCF: Unknown';
       if (bcf > 2000) return 'BCF: High (bioaccumulative)';
@@ -513,9 +535,11 @@
     }
 
     function renderEffects(r) {
+      // Título
       const effTitle = document.getElementById('effTitle');
       effTitle.textContent = `${r.site || 'Unknown site'} — ${r.compound || 'Unknown compound'}`;
 
+      // Badges
       const badges = [];
       badges.push(`<span class="px-2 py-1 rounded-full bg-gray-100">${classifyBCF(r.bcf)}</span>`);
       badges.push(`<span class="px-2 py-1 rounded-full bg-gray-100">${classifyLC50(r.lc50_fish)}</span>`);
@@ -534,6 +558,7 @@
       }
       document.getElementById('effBadges').innerHTML = badges.join(' ');
 
+      // Resumen textual
       const parts = [];
       if (r.logkow != null) parts.push(`logKow = ${r.logkow}`);
       if (r.bcf != null) parts.push(`BCF = ${r.bcf} L/kg (${classifyBCF(r.bcf).replace('BCF: ', '')})`);
@@ -543,6 +568,7 @@
       document.getElementById('effSummary').textContent =
         parts.length ? parts.join(' · ') : 'No QSAR fields available for this record.';
 
+      // Tabla de valores
       const rows = [
         ['logKow', r.logkow],
         ['Solubility (mg/L)', r.solubility],
@@ -562,87 +588,6 @@
           <td class="p-2">${v == null || v === '' ? '<span class="text-gray-400">N/A</span>' : v}</td>
         </tr>
       `).join('');
-    }
-
-    /* --------- GRÁFICOS (Chart.js) --------- */
-    function destroyIfExists(chartRef) {
-      if (chartRef && typeof chartRef.destroy === 'function') chartRef.destroy();
-    }
-
-    function buildCharts(data) {
-      // Gráfico 1: Contribución por país (dona)
-      const countsByCountry = {};
-      data.forEach(r => {
-        if (!r.country) return;
-        countsByCountry[r.country] = (countsByCountry[r.country] || 0) + 1;
-      });
-      const countries = Object.keys(countsByCountry);
-      const values = Object.values(countsByCountry);
-
-      destroyIfExists(countryChart);
-      const ctx1 = document.getElementById('chartCountries').getContext('2d');
-      countryChart = new Chart(ctx1, {
-        type: 'doughnut',
-        data: { labels: countries, datasets: [{ data: values }] },
-        options: {
-          maintainAspectRatio: false,     // respeta la altura CSS (280px)
-          responsive: true,
-          animation: false,
-          plugins: {
-            title: { display: true, text: 'Contribution by Country (count of records)' },
-            legend: { position: 'bottom' }
-          }
-        }
-      });
-
-      // Gráfico 2: Matrices ambientales por país (barras apiladas)
-      const matrixKeys = ['Wastewater','Freshwater','Seawater','Drinking water','Biota','Air','Soil'];
-      const grouped = {};
-      data.forEach(r => {
-        const c = r.country || 'Unknown';
-        const m = r.matrix || 'Unknown';
-        if (!grouped[c]) grouped[c] = {};
-        grouped[c][m] = (grouped[c][m] || 0) + 1;
-      });
-
-      const xCountries = Object.keys(grouped);
-      const datasets = matrixKeys
-        .filter(k => xCountries.some(c => grouped[c][k]))
-        .map(k => ({
-          label: k,
-          data: xCountries.map(c => grouped[c][k] || 0),
-          stack: 'stack1',
-          maxBarThickness: 24,            // <- barras más delgadas
-          barPercentage: 0.9,
-          categoryPercentage: 0.8
-        }));
-
-      destroyIfExists(matricesChart);
-      const ctx2 = document.getElementById('chartMatrices').getContext('2d');
-      matricesChart = new Chart(ctx2, {
-        type: 'bar',
-        data: { labels: xCountries, datasets },
-        options: {
-          maintainAspectRatio: false,     // respeta 320px del canvas
-          responsive: true,
-          animation: false,               // más ágil
-          plugins: {
-            title: { display: true, text: 'Environmental Matrix by Country (stacked counts)' },
-            legend: { position: 'right' }
-          },
-          scales: {
-            x: {
-              stacked: true,
-              ticks: { maxRotation: 45, minRotation: 0, autoSkip: true, maxTicksLimit: 12 }
-            },
-            y: {
-              stacked: true,
-              beginAtZero: true,
-              ticks: { precision: 0 }    // enteros
-            }
-          }
-        }
-      });
     }
   </script>
 </body>
